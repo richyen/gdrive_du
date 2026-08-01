@@ -75,6 +75,7 @@ class Node:
     own_size: int = 0  # bytes of this file itself (0 for folders / native docs)
     mime_type: str = ""
     modified_time: str = ""
+    md5: str = ""  # md5Checksum for binary files ("" for folders / native docs)
     children: list["Node"] = field(default_factory=list)
     total_size: int = 0  # own_size + all descendants (computed)
     file_count: int = 0  # number of non-folder descendants (computed)
@@ -90,6 +91,8 @@ class Node:
             "mime_type": self.mime_type,
             "modified_time": self.modified_time,
         }
+        if not self.is_folder:
+            d["md5"] = self.md5
         if self.is_folder:
             kids = self.children if include_files else [c for c in self.children if c.is_folder]
             d["children"] = [c.to_dict(include_files) for c in kids]
@@ -122,6 +125,7 @@ def build_tree(items: list[dict], drive_id: str, drive_name: str) -> Node:
             own_size=0 if is_folder else _to_int_size(it.get("size")),
             mime_type=it.get("mimeType", ""),
             modified_time=it.get("modifiedTime", ""),
+            md5="" if is_folder else (it.get("md5Checksum") or ""),
         )
 
     # Second pass: wire up parent -> child relationships.

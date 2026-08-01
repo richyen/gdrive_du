@@ -73,6 +73,14 @@ Then open the URL, pick a shared drive from the dropdown, and click **Crawl**.
 Switch between the **Tree** and **du (sizes)** tabs. Results are cached in the
 server process per drive; use **Refresh** to force a re-crawl.
 
+- **Hover a file's 📄 icon** to see its **md5 checksum**, modified time, and size.
+  (md5 is also included in the crawl/snapshot JSON for every binary file.)
+- **Downloads** are gated by the **"allow downloads"** switch in the header. It
+  is **off by default and enforced server-side** — while off, the download
+  endpoint returns HTTP 403. Turn it on to reveal a ⬇ button on each file.
+  Google-native docs are exported on download (Docs→`.docx`, Sheets→`.xlsx`,
+  Slides→`.pptx`, Drawings→`.png`, others→PDF).
+
 ## Files
 
 | Path | Purpose |

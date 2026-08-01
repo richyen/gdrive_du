@@ -49,6 +49,14 @@
   .name.folder { color: var(--folder); font-weight: 500; cursor: pointer; }
   .size { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 6px; }
   .count { color: #5c6473; font-size: 12px; }
+  .icon { cursor: default; }
+  .icon.file { cursor: help; }
+  a.dl {
+    display: none; text-decoration: none; color: var(--accent); font-size: 14px;
+    padding: 0 4px; border-radius: 4px;
+  }
+  a.dl:hover { background: #22314d; }
+  body.downloads-on a.dl { display: inline; }
   .barwrap { flex: 1; height: 6px; background: #10131b; border-radius: 4px; overflow: hidden; max-width: 220px; }
   .bar { height: 100%; background: var(--bar); }
 
@@ -68,6 +76,7 @@
   <button class="primary" id="crawlBtn">Crawl</button>
   <button id="refreshBtn" title="Re-crawl, bypass cache">Refresh</button>
   <span style="flex:1"></span>
+  <label class="check" title="Server-enforced. When off, downloads are refused."><input type="checkbox" id="allowDl" /> allow downloads</label>
   <label class="check"><input type="checkbox" id="foldersOnly" /> folders only</label>
 </header>
 <main>
@@ -171,7 +180,18 @@ function nodeLi(node, parentMax, foldersOnly, open) {
 
   const name = document.createElement("span");
   name.className = "name" + (node.is_folder ? " folder" : "");
-  name.textContent = (node.is_folder ? "📁 " : "📄 ") + node.name;
+  const icon = document.createElement("span");
+  icon.className = "icon" + (node.is_folder ? " folder" : " file");
+  icon.textContent = node.is_folder ? "📁 " : "📄 ";
+  if (!node.is_folder) {
+    const md5 = node.md5 ? node.md5 : "(none — Google-native doc)";
+    const mod = node.modified_time ? node.modified_time : "unknown";
+    icon.title = `md5: ${md5}\nmodified: ${mod}\nsize: ${humanSize(node.total_size)}`;
+  }
+  const label = document.createElement("span");
+  label.textContent = node.name;
+  name.appendChild(icon);
+  name.appendChild(label);
   row.appendChild(name);
 
   const pct = parentMax > 0 ? Math.max(1, Math.round(100 * node.total_size / parentMax)) : 0;
@@ -190,6 +210,13 @@ function nodeLi(node, parentMax, foldersOnly, open) {
     c.className = "count";
     c.textContent = `${node.file_count} files`;
     row.appendChild(c);
+  } else {
+    const dl = document.createElement("a");
+    dl.className = "dl";
+    dl.href = `/api/download?file_id=${encodeURIComponent(node.id)}`;
+    dl.title = "Download";
+    dl.textContent = "⬇";
+    row.appendChild(dl);
   }
 
   li.appendChild(row);
@@ -240,6 +267,28 @@ function escapeHtml(s) {
 
 $("#crawlBtn").onclick = () => crawl(false);
 $("#refreshBtn").onclick = () => crawl(true);
+
+async function loadConfig() {
+  try {
+    const r = await fetch("/api/config");
+    const j = await r.json();
+    setDownloads(!!j.allow_downloads, false);
+  } catch (e) { /* leave downloads off */ }
+}
+
+function setDownloads(on, push) {
+  $("#allowDl").checked = on;
+  document.body.classList.toggle("downloads-on", on);
+  if (push) {
+    fetch("/api/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allow_downloads: on }),
+    }).catch(() => {});
+  }
+}
+
+$("#allowDl").onchange = (e) => setDownloads(e.target.checked, true);
 $("#foldersOnly").onchange = () => { if (SNAP && TAB === "tree") renderTree(); };
 document.querySelectorAll(".tabs button").forEach(b => {
   b.onclick = () => {
@@ -250,6 +299,7 @@ document.querySelectorAll(".tabs button").forEach(b => {
   };
 });
 
+loadConfig();
 loadDrives();
 </script>
 </body>

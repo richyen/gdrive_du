@@ -61,6 +61,7 @@ def _node_from_dict(d: dict) -> Node:
         own_size=d.get("own_size", 0),
         mime_type=d.get("mime_type", ""),
         modified_time=d.get("modified_time", ""),
+        md5=d.get("md5", ""),
         total_size=d.get("total_size", 0),
         file_count=d.get("file_count", 0),
     )
