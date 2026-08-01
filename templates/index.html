@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Google Shared Drive &mdash; du &amp; tree</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #171a23; --border: #262b36; --text: #e6e8ee;
+    --muted: #9aa3b2; --accent: #4c8dff; --folder: #f2c14e; --bar: #2f6df6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 14px/1.5 -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    background: var(--panel); position: sticky; top: 0; z-index: 5;
+  }
+  h1 { font-size: 16px; margin: 0 12px 0 0; font-weight: 600; }
+  select, button, label { font-size: 13px; }
+  select, button {
+    background: #10131b; color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px;
+  }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  label.check { color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+  main { padding: 16px 20px; }
+  .summary { color: var(--muted); margin-bottom: 12px; }
+  .summary b { color: var(--text); }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tabs button.active { background: var(--panel); border-color: var(--accent); }
+  .hidden { display: none; }
+  .status { color: var(--muted); padding: 24px 0; }
+  .err { color: #ff6b6b; white-space: pre-wrap; }
+
+  /* Tree */
+  ul.tree, ul.tree ul { list-style: none; margin: 0; padding-left: 18px; }
+  ul.tree { padding-left: 0; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 2px 6px; border-radius: 5px; }
+  .row:hover { background: #1c2029; }
+  .twisty { width: 14px; color: var(--muted); cursor: pointer; user-select: none; text-align: center; }
+  .twisty.leaf { visibility: hidden; }
+  .name { flex: 0 1 auto; }
+  .name.folder { color: var(--folder); font-weight: 500; cursor: pointer; }
+  .size { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 6px; }
+  .count { color: #5c6473; font-size: 12px; }
+  .barwrap { flex: 1; height: 6px; background: #10131b; border-radius: 4px; overflow: hidden; max-width: 220px; }
+  .bar { height: 100%; background: var(--bar); }
+
+  /* du table */
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); cursor: pointer; user-select: none; }
+  td.sz { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr:hover td { background: #1c2029; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Shared Drive du / tree</h1>
+  <select id="driveSel"><option value="">Loading drives…</option></select>
+  <label class="check"><input type="checkbox" id="trashed" /> include trashed</label>
+  <button class="primary" id="crawlBtn">Crawl</button>
+  <button id="refreshBtn" title="Re-crawl, bypass cache">Refresh</button>
+  <span style="flex:1"></span>
+  <label class="check"><input type="checkbox" id="foldersOnly" /> folders only</label>
+</header>
+<main>
+  <div class="summary" id="summary"></div>
+  <div class="tabs">
+    <button data-tab="tree" class="active">Tree</button>
+    <button data-tab="du">du (sizes)</button>
+  </div>
+  <div id="status" class="status">Pick a shared drive and click <b>Crawl</b>.</div>
+  <div id="view-tree" class="hidden"></div>
+  <div id="view-du" class="hidden"></div>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let SNAP = null;      // last crawl snapshot
+let TAB = "tree";
+
+function humanSize(n) {
+  if (!n) return "0B";
+  const u = ["B","K","M","G","T","P"]; let s = n, i = 0;
+  while (s >= 1024 && i < u.length - 1) { s /= 1024; i++; }
+  return (i === 0 ? s : s.toFixed(1)) + u[i];
+}
+
+async function loadDrives() {
+  const sel = $("#driveSel");
+  try {
+    const r = await fetch("/api/drives");
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    if (!j.drives.length) { sel.innerHTML = "<option value=''>No shared drives found</option>"; return; }
+    sel.innerHTML = j.drives.map(d => `<option value="${d.id}" data-name="${encodeURIComponent(d.name)}">${d.name}</option>`).join("");
+  } catch (e) {
+    sel.innerHTML = "<option value=''>Error loading drives</option>";
+    showError(e.message);
+  }
+}
+
+function showError(msg) {
+  $("#status").classList.remove("hidden");
+  $("#status").innerHTML = `<div class="err">${msg}</div>`;
+}
+
+async function crawl(refresh) {
+  const sel = $("#driveSel");
+  const opt = sel.selectedOptions[0];
+  if (!opt || !opt.value) return;
+  const name = decodeURIComponent(opt.dataset.name || "");
+  const trashed = $("#trashed").checked ? "1" : "0";
+  $("#status").classList.remove("hidden");
+  $("#status").textContent = "Crawling… this can take a while for large drives.";
+  $("#view-tree").classList.add("hidden");
+  $("#view-du").classList.add("hidden");
+  try {
+    const url = `/api/crawl?drive_id=${encodeURIComponent(opt.value)}&drive_name=${encodeURIComponent(name)}&include_trashed=${trashed}&refresh=${refresh ? "1" : "0"}`;
+    const r = await fetch(url);
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    SNAP = j;
+    render();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+function render() {
+  if (!SNAP) return;
+  $("#status").classList.add("hidden");
+  $("#summary").innerHTML =
+    `<b>${SNAP.drive_name}</b> — <b>${humanSize(SNAP.total_size)}</b> across `
+    + `<b>${SNAP.file_count.toLocaleString()}</b> files · crawled ${SNAP.crawled_at}`;
+  if (TAB === "tree") renderTree(); else renderDu();
+}
+
+function renderTree() {
+  $("#view-du").classList.add("hidden");
+  const host = $("#view-tree");
+  host.classList.remove("hidden");
+  const foldersOnly = $("#foldersOnly").checked;
+  const ul = document.createElement("ul");
+  ul.className = "tree";
+  ul.appendChild(nodeLi(SNAP.tree, SNAP.tree.total_size || 1, foldersOnly, true));
+  host.innerHTML = "";
+  host.appendChild(ul);
+}
+
+function nodeLi(node, parentMax, foldersOnly, open) {
+  const li = document.createElement("li");
+  const row = document.createElement("div");
+  row.className = "row";
+
+  let kids = (node.children || []);
+  if (foldersOnly) kids = kids.filter(c => c.is_folder);
+  const hasKids = node.is_folder && kids.length > 0;
+
+  const tw = document.createElement("span");
+  tw.className = "twisty" + (hasKids ? "" : " leaf");
+  tw.textContent = open ? "▾" : "▸";
+  row.appendChild(tw);
+
+  const name = document.createElement("span");
+  name.className = "name" + (node.is_folder ? " folder" : "");
+  name.textContent = (node.is_folder ? "📁 " : "📄 ") + node.name;
+  row.appendChild(name);
+
+  const pct = parentMax > 0 ? Math.max(1, Math.round(100 * node.total_size / parentMax)) : 0;
+  const barwrap = document.createElement("span");
+  barwrap.className = "barwrap";
+  barwrap.innerHTML = `<span class="bar" style="width:${pct}%"></span>`;
+  row.appendChild(barwrap);
+
+  const size = document.createElement("span");
+  size.className = "size";
+  size.textContent = humanSize(node.total_size);
+  row.appendChild(size);
+
+  if (node.is_folder) {
+    const c = document.createElement("span");
+    c.className = "count";
+    c.textContent = `${node.file_count} files`;
+    row.appendChild(c);
+  }
+
+  li.appendChild(row);
+
+  if (hasKids) {
+    const childUl = document.createElement("ul");
+    if (!open) childUl.classList.add("hidden");
+    const childMax = Math.max(...kids.map(k => k.total_size), 1);
+    let built = false;
+    const build = () => {
+      if (built) return; built = true;
+      kids.forEach(k => childUl.appendChild(nodeLi(k, childMax, foldersOnly, false)));
+    };
+    if (open) build();
+    const toggle = () => {
+      const isOpen = !childUl.classList.contains("hidden");
+      if (isOpen) { childUl.classList.add("hidden"); tw.textContent = "▸"; }
+      else { build(); childUl.classList.remove("hidden"); tw.textContent = "▾"; }
+    };
+    tw.onclick = toggle;
+    name.onclick = toggle;
+    li.appendChild(childUl);
+  }
+  return li;
+}
+
+function renderDu() {
+  $("#view-tree").classList.add("hidden");
+  const host = $("#view-du");
+  host.classList.remove("hidden");
+  const rows = [];
+  (function walk(node, path) {
+    const p = path ? path + "/" + node.name : node.name;
+    if (node.is_folder) {
+      rows.push({ size: node.total_size, path: p, count: node.file_count });
+      (node.children || []).forEach(c => walk(c, p));
+    }
+  })(SNAP.tree, "");
+  rows.sort((a, b) => b.size - a.size);
+  host.innerHTML =
+    `<table><thead><tr><th class="sz" id="thSize">Size ▾</th><th id="thPath">Folder</th><th class="sz">Files</th></tr></thead>`
+    + `<tbody>${rows.map(r => `<tr><td class="sz">${humanSize(r.size)}</td><td>${escapeHtml(r.path)}</td><td class="sz">${r.count}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
+}
+
+$("#crawlBtn").onclick = () => crawl(false);
+$("#refreshBtn").onclick = () => crawl(true);
+$("#foldersOnly").onchange = () => { if (SNAP && TAB === "tree") renderTree(); };
+document.querySelectorAll(".tabs button").forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll(".tabs button").forEach(x => x.classList.remove("active"));
+    b.classList.add("active");
+    TAB = b.dataset.tab;
+    render();
+  };
+});
+
+loadDrives();
+</script>
+</body>
+</html>

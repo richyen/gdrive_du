@@ -1,0 +1,13 @@
+# Secrets — never commit
+credentials.json
+token.json
+
+# Snapshots may contain drive structure
+*.snapshot.json
+snapshot.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
