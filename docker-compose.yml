@@ -1,0 +1,12 @@
+services:
+  gdrive-du:
+    build: .
+    image: gdrive-du:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      # Secrets stay on the host filesystem, mounted read-only / read-write
+      # as needed; never copied into the image.
+      - ./credentials.json:/app/secrets/credentials.json:ro
+      - ./token.json:/app/secrets/token.json
+    restart: unless-stopped

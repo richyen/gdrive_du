@@ -1,0 +1,23 @@
+# Secrets — never bake into the image; mounted at runtime instead.
+credentials.json
+token.json
+
+# Snapshots may contain drive structure
+*.snapshot.json
+snapshot.json
+
+# VCS / editor
+.git
+.gitignore
+README.md
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

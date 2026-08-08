@@ -73,6 +73,31 @@ Then open the URL, pick a shared drive from the dropdown, and click **Crawl**.
 Switch between the **Tree** and **du (sizes)** tabs. Results are cached in the
 server process per drive; use **Refresh** to force a re-crawl.
 
+### Run it with Docker
+
+`credentials.json` and `token.json` must already exist in this folder (see
+step 1 above and the first-run note below) — they're mounted into the
+container, never baked into the image.
+
+```powershell
+docker compose up --build
+```
+
+Then open http://localhost:5000. To run without Compose:
+
+```powershell
+docker build -t gdrive-du .
+docker run --rm -p 5000:5000 `
+  -v "${PWD}\credentials.json:/app/secrets/credentials.json:ro" `
+  -v "${PWD}\token.json:/app/secrets/token.json" `
+  gdrive-du
+```
+
+> **First-run auth note:** the OAuth consent flow opens a local browser and
+> listens on a loopback port, which doesn't work from inside a container. Run
+> `python -m gdrive_du.web` (or the CLI) once on the host to generate
+> `token.json`, then it'll be reused inside the container on every run.
+
 - **Hover a file's 📄 icon** to see its **md5 checksum**, modified time, and size.
   (md5 is also included in the crawl/snapshot JSON for every binary file.)
 - **Downloads** are gated by the **"allow downloads"** switch in the header. It
